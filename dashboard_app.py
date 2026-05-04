@@ -18,6 +18,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import time
 import io
+import random
 import matplotlib
 matplotlib.use("Agg")   # non-interactive backend, aman untuk Streamlit
 import matplotlib.pyplot as plt
@@ -55,7 +56,6 @@ PLOTLY_COLORS = [C_BLUE, C_GREEN, "#00a8e8", "#7ec832", "#004d6e", "#d4f56a"]
 # ============================================================
 st.set_page_config(
     page_title="JakLingko Analytics Command Center",
-    page_icon="https://upload.wikimedia.org/wikipedia/en/d/d1/JakLingko.svg",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -321,13 +321,43 @@ st.markdown(f"""
 # ============================================================
 # 2. DATA LOADING (Membaca file jaklingko_dwh.csv)
 # ============================================================
+def generate_mock_data():
+    """Fungsi cadangan untuk menghasilkan data simulasi jika CSV salah/tidak ada"""
+    from datetime import timedelta
+    data = []
+    base_date = datetime(2024, 4, 1)
+    segments, seg_weights = ['Pekerja', 'Pelajar', 'Mahasiswa', 'Lansia'], [0.65, 0.15, 0.15, 0.05]
+    genders = ['Pria', 'Wanita']
+    banks, bank_weights = ['Bank DKI', 'BCA', 'Mandiri', 'BNI', 'BRI'], [0.4, 0.25, 0.15, 0.1, 0.1]
+    corridors = ['Koridor 1', 'Koridor 2', 'Koridor 3', 'Koridor 4', 'Koridor 5']
+    
+    for i in range(2500):
+        date_val = base_date + timedelta(days=random.randint(0, 30))
+        is_wknd = 1 if date_val.weekday() >= 5 else 0
+        jam = random.choices(range(6, 22), weights=[1]*16, k=1)[0] if is_wknd else random.choices(range(5, 23), weights=[1,5,8,7,4,2,2,2,2,2,3,6,8,5,2,1,1,1], k=1)[0]
+        data.append({
+            'tanggal': date_val, 'nama_hari': date_val.strftime('%A'), 'is_weekend': is_wknd,
+            'jam_tap_in': jam, 'total_bayar': random.choice([3500, 3500, 3500, 0, 10000]),
+            'transaksi_id': f"TRX{i:05d}", 'segment_pengguna': random.choices(segments, weights=seg_weights, k=1)[0],
+            'gender': random.choice(genders), 'bank_kartu': random.choices(banks, weights=bank_weights, k=1)[0],
+            'jenis_koridor': random.choice(corridors)
+        })
+    return pd.DataFrame(data)
+
 @st.cache_data(ttl=60)   # Cache 60 detik untuk simulasi auto-refresh
 def load_data():
     try:
-        # Membaca data langsung dari nama file CSV Anda
-        df = pd.read_csv("jaklingko_dwh.csv")
+        # Membaca data dengan auto-detect delimiter
+        df = pd.read_csv("jaklingko_dwh.csv", sep=None, engine='python')
+        df.columns = df.columns.str.strip().str.lower()
         
-        # Pastikan format kolom sesuai
+        # Validasi apakah kolom yang diekspor sudah benar hasil JOIN
+        req_cols = ['tanggal', 'jam_tap_in', 'total_bayar', 'segment_pengguna']
+        if not all(col in df.columns for col in req_cols):
+            st.warning("File CSV terbaca, tetapi ini sepertinya tabel dimensi (bukan hasil JOIN seluruh data). Sistem otomatis beralih menggunakan Data Simulasi agar dashboard tetap dapat dipresentasikan.")
+            return generate_mock_data()
+        
+        # Jika CSV benar, proses secara normal
         df['tanggal']    = pd.to_datetime(df['tanggal'])
         df['jam_tap_in'] = pd.to_numeric(df['jam_tap_in'], errors='coerce')
         df['total_bayar']= pd.to_numeric(df['total_bayar'], errors='coerce')
@@ -338,10 +368,14 @@ def load_data():
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
                 
+        # Penyesuaian bahasa untuk kolom gender agar tampil rapi di grafik
+        if 'gender' in df.columns:
+            df['gender'] = df['gender'].replace({'M': 'Pria', 'F': 'Wanita', 'L': 'Pria', 'P': 'Wanita'})
+                
         return df
     except FileNotFoundError:
-        st.error("⚠️ File 'jaklingko_dwh.csv' tidak ditemukan. Pastikan file sudah diunggah di folder yang sama dengan kode ini (dashboard_app.py).")
-        st.stop()
+        st.warning("File 'jaklingko_dwh.csv' tidak ditemukan di repositori GitHub. Sistem otomatis beralih menggunakan Data Simulasi agar dashboard tetap berjalan.")
+        return generate_mock_data()
 
 
 # ============================================================
@@ -716,7 +750,7 @@ kpi_items = [
 ]
 for col, label, value, sub in kpi_items:
     with col:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div><div class="kpi-delta">◆ {sub}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div><div class="kpi-delta">> {sub}</div></div>', unsafe_allow_html=True)
 
 
 # ============================================================
